@@ -20,27 +20,26 @@ export interface CapabilityRequest {
   readonly resourceVersion: string
 }
 
+export type DenialReason =
+  | "principal_mismatch"
+  | "resource_mismatch"
+  | "capability_mismatch"
+  | "destination_required"
+  | "destination_denied"
+  | "resource_stale"
+  | "lease_expired"
+  | "lease_exhausted"
+
 export type Authorization =
   | { readonly allowed: true; readonly destination?: string | undefined }
-  | {
-      readonly allowed: false
-      readonly reason:
-        | "principal_mismatch"
-        | "resource_mismatch"
-        | "capability_mismatch"
-        | "destination_required"
-        | "destination_denied"
-        | "resource_stale"
-        | "lease_expired"
-        | "lease_exhausted"
-    }
+  | { readonly allowed: false; readonly reason: DenialReason }
 
 export interface UseReceipt {
   readonly resource: string
   readonly capability: Capability
   readonly destination?: string | undefined
   readonly outcome: "allowed" | "denied"
-  readonly reason?: Exclude<Authorization, { readonly allowed: true }>["reason"] | undefined
+  readonly reason?: DenialReason | undefined
 }
 
 const httpsUrl = (input: string): URL | undefined => {
@@ -105,15 +104,22 @@ export const authorizeLease = (
   return { allowed: true }
 }
 
-export const receiptFor = (lease: CapabilityLease, request: CapabilityRequest, authorization: Authorization): UseReceipt => ({
-  resource: lease.resource,
-  capability: request.capability,
-  ...(request.destination === undefined
-    ? {}
-    : { destination: normalizeDestination(request.destination) ?? "invalid" }),
-  outcome: authorization.allowed ? "allowed" : "denied",
-  ...(authorization.allowed ? {} : { reason: authorization.reason }),
-})
+export const receiptFor = (
+  lease: CapabilityLease,
+  request: CapabilityRequest,
+  authorization: Authorization,
+): UseReceipt => {
+  const base = {
+    resource: lease.resource,
+    capability: request.capability,
+    ...(request.destination === undefined
+      ? {}
+      : { destination: normalizeDestination(request.destination) ?? "invalid" }),
+  }
+  return "reason" in authorization
+    ? { ...base, outcome: "denied", reason: authorization.reason }
+    : { ...base, outcome: "allowed" }
+}
 
 // Exact-value redaction is an egress guardrail, not the authorization boundary.
 // Longest-first avoids leaking a longer secret when one secret is a prefix of another.
