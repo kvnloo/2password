@@ -1,3 +1,4 @@
+import { BunServices } from "@effect/platform-bun"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { createHash } from "node:crypto"
@@ -29,7 +30,7 @@ const fixture = async () => {
 const grant = (path: string, uses = 1, expiresIn = "10m") =>
   Lease.grantWith({ ...binding }, { path, uses, expiresIn }, () => Effect.succeed(resource))
 
-const fails = <A, E>(effect: Effect.Effect<A, E>) =>
+const fails = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.map(() => false),
     Effect.catch(() => Effect.succeed(true)),
@@ -39,7 +40,9 @@ describe("leases", () => {
   it.runIf(!process.stdin.isTTY || !process.stderr.isTTY)(
     "refuses normal lease minting from a non-interactive agent process",
     async () => {
-      const result = await Effect.runPromise(fails(Lease.grant(binding, { uses: 1, expiresIn: "10m" })))
+      const result = await Effect.runPromise(
+        fails(Lease.grant(binding, { uses: 1, expiresIn: "10m" })).pipe(Effect.provide(BunServices.layer)),
+      )
       assert.isTrue(result)
     },
   )
