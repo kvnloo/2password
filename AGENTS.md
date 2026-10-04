@@ -39,6 +39,8 @@ src/env.ts                  read, run, env write/resolve/run
 src/create.ts               create api-credential
 src/password.ts             password compare/update
 src/request.ts              destination-bound HTTPS private executor
+src/lease.ts                bounded bearer-capability leases (SQLite stores only token hashes)
+src/request-leased.ts       lease checks wrapped around private request execution
 src/service-account.ts      service-account setup/connect/status/recover/forget
 src/arguments.ts            keeps arguments after `--` away from the flag parser
 skills/2password/SKILL.md   the agent skill we ship; keep it in sync with the CLI
@@ -57,6 +59,9 @@ These are security properties. Do not weaken them.
 6. If the saved service account fails, report the failure. Never fall back to desktop authentication.
 7. Results are JSON on stdout and notices go to stderr. Every expected error is an `Op.Failure`, printed as `2password: <message>` with exit code 1.
 8. `request` validates the full HTTPS destination and all resolved addresses before reading a credential, rejects any special/private answer, pins the connection to one validated address, follows no redirects, caps the response, keeps its body private, and returns only non-secret receipt metadata.
+9. Leased requests authorize the exact request binding before DNS, then verify the 1Password item version and atomically consume one use before reading plaintext. Replay, expiry, revocation, binding mismatch, or stale versions fail closed; uncertain execution never refunds a claim.
+10. Lease bearer tokens are short-lived/budgeted and stored only as SHA-256 keys. `lease approve` is interactive-only and forces desktop authentication. Agents may consume/status/revoke but must never mint leases automatically.
+11. The SQLite issuer ID identifies the local lease store; it is **not** authenticated per-agent identity or a same-user isolation boundary. Do not claim otherwise. Strong caller identity belongs in a future broker/daemon.
 
 ## Changing things
 
