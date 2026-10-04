@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { mkdtemp, rm } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Lease } from "../src/lease.js"
@@ -35,6 +36,14 @@ const fails = <A, E>(effect: Effect.Effect<A, E>) =>
   )
 
 describe("leases", () => {
+  it.runIf(!process.stdin.isTTY || !process.stderr.isTTY)(
+    "refuses normal lease minting from a non-interactive agent process",
+    async () => {
+      const result = await Effect.runPromise(fails(Lease.grant(binding, { uses: 1, expiresIn: "10m" })))
+      assert.isTrue(result)
+    },
+  )
+
   it("binds authority and atomically exhausts a use budget", async () => {
     const f = await fixture()
     try {
@@ -42,6 +51,8 @@ describe("leases", () => {
       assert.strictEqual(created.usesRemaining, 2)
       assert.strictEqual(created.itemVersion, 7)
       assert.strictEqual(created.destinationFingerprint, binding.destinationFingerprint)
+      assert.strictEqual(created.fingerprint, createHash("sha256").update(created.id).digest("hex").slice(0, 12))
+      assert.isFalse((await readFile(f.path)).toString("utf8").includes(created.id))
 
       const authorized = await Effect.runPromise(Lease.authorize(created.id, binding, { path: f.path }))
       assert.strictEqual(authorized.issuer, created.issuer)
