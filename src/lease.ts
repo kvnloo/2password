@@ -166,7 +166,10 @@ const issuerOf = (db: Database): string => {
   return (db.query("SELECT value FROM meta WHERE key = 'issuer'").get() as { value: string }).value
 }
 
-const leaseKey = (token: string) => createHash("sha256").update(token).digest("hex")
+const leaseKey = (token: string) => {
+  if (!/^2pl_[A-Za-z0-9_-]{32}$/.test(token)) throw fail("Lease token is malformed")
+  return createHash("sha256").update(token).digest("hex")
+}
 const leaseToken = () => `2pl_${randomBytes(24).toString("base64url")}`
 
 const selectLease = (db: Database, token: string) =>
@@ -221,27 +224,27 @@ export const grantWith = <R>(
       const issuer = issuerOf(db)
       db.query(
         `INSERT INTO leases (
-        id, issuer, capability, method, reference, item_id, item_version,
-        destination, destination_fingerprint, header, prefix,
-        created_at, expires_at, use_budget, uses_remaining, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          id, issuer, capability, method, reference, item_id, item_version,
+          destination, destination_fingerprint, header, prefix,
+          created_at, expires_at, use_budget, uses_remaining, revoked_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       ).run(
-      leaseKey(id),
-      issuer,
-      binding.capability,
-      binding.method,
-      binding.reference,
-      resource.id,
-      resource.version,
-      binding.destination,
-      binding.destinationFingerprint,
-      binding.header,
-      binding.prefix,
-      now,
-      now + ttl * 1000,
-      options.uses,
-      options.uses,
-    )
+        leaseKey(id),
+        issuer,
+        binding.capability,
+        binding.method,
+        binding.reference,
+        resource.id,
+        resource.version,
+        binding.destination,
+        binding.destinationFingerprint,
+        binding.header,
+        binding.prefix,
+        now,
+        now + ttl * 1000,
+        options.uses,
+        options.uses,
+      )
       return { id, ...receipt(selectLease(db, id)!) }
     })
   })
