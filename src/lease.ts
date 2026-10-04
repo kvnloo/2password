@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
 import { Effect, Schema } from "effect"
-import { randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { chmodSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { Auth } from "./auth.js"
@@ -166,8 +166,11 @@ const issuerOf = (db: Database): string => {
   return (db.query("SELECT value FROM meta WHERE key = 'issuer'").get() as { value: string }).value
 }
 
-const selectLease = (db: Database, id: string) =>
-  db.query("SELECT * FROM leases WHERE id = ?").get(id) as LeaseRow | null
+const leaseKey = (token: string) => createHash("sha256").update(token).digest("hex")
+const leaseToken = () => `2pl_${randomBytes(24).toString("base64url")}`
+
+const selectLease = (db: Database, token: string) =>
+  db.query("SELECT * FROM leases WHERE id = ?").get(leaseKey(token)) as LeaseRow | null
 
 const matches = (row: LeaseRow, binding: Binding, issuer: string, now: number) =>
   row.issuer === issuer &&
@@ -183,7 +186,7 @@ const matches = (row: LeaseRow, binding: Binding, issuer: string, now: number) =
   row.uses_remaining > 0
 
 const receipt = (row: LeaseRow) => ({
-  id: row.id,
+  fingerprint: row.id.slice(0, 12),
   issuer: row.issuer,
   capability: row.capability,
   method: row.method,
@@ -204,26 +207,26 @@ export const grantWith = <R>(
   inspect: (reference: string) => Effect.Effect<ResourceVersion, Op.Failure, R>,
 ) =>
   Effect.gen(function* () {
-  if (!Number.isInteger(options.uses) || options.uses < 1 || options.uses > maxUses) {
-    return yield* fail(`--uses must be between 1 and ${maxUses}`)
-  }
-  const ttl = yield* Effect.try({
-    try: () => durationSeconds(options.expiresIn),
-    catch: (error) => (error instanceof Op.Failure ? error : fail("Invalid lease lifetime")),
-  })
-  const resource = yield* inspect(binding.reference)
-  const now = Date.now()
-  const id = randomUUID()
-  return yield* withDatabase(options, (db) => {
-    const issuer = issuerOf(db)
-    db.query(
-      `INSERT INTO leases (
+    if (!Number.isInteger(options.uses) || options.uses < 1 || options.uses > maxUses) {
+      return yield* fail(`--uses must be between 1 and ${maxUses}`)
+    }
+    const ttl = yield* Effect.try({
+      try: () => durationSeconds(options.expiresIn),
+      catch: (error) => (error instanceof Op.Failure ? error : fail("Invalid lease lifetime")),
+    })
+    const resource = yield* inspect(binding.reference)
+    const now = Date.now()
+    const id = leaseToken()
+    return yield* withDatabase(options, (db) => {
+      const issuer = issuerOf(db)
+      db.query(
+        `INSERT INTO leases (
         id, issuer, capability, method, reference, item_id, item_version,
         destination, destination_fingerprint, header, prefix,
         created_at, expires_at, use_budget, uses_remaining, revoked_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    ).run(
-      id,
+      ).run(
+      leaseKey(id),
       issuer,
       binding.capability,
       binding.method,
@@ -239,9 +242,9 @@ export const grantWith = <R>(
       options.uses,
       options.uses,
     )
-    return receipt(selectLease(db, id)!)
+      return { id, ...receipt(selectLease(db, id)!) }
+    })
   })
-})
 
 export const grant = (binding: Binding, options: GrantOptions) =>
   process.stdin.isTTY && process.stderr.isTTY
@@ -291,7 +294,7 @@ export const claim = Effect.fn("Lease.claim")(function* (
            AND expires_at > ?
            AND uses_remaining > 0`,
       ).run(
-        id,
+        leaseKey(id),
         issuer,
         binding.capability,
         binding.method,
@@ -353,7 +356,9 @@ export const status = Effect.fn("Lease.status")(function* (id: string, options: 
 export const revoke = Effect.fn("Lease.revoke")(function* (id: string, options: StoreOptions = {}) {
   return yield* withDatabase(options, (db) => {
     const now = Date.now()
-    const result = db.query("UPDATE leases SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(now, id)
+    const result = db
+      .query("UPDATE leases SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+      .run(now, leaseKey(id))
     if (result.changes !== 1) throw fail("Lease not found or already revoked")
     return receipt(selectLease(db, id)!)
   })
