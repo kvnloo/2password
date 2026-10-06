@@ -18,7 +18,10 @@ bunx skills add kitlangton/2password  # teaches your agent to use it
 2password run --env "OPENAI_API_KEY=op://Personal/OpenAI API Key/credential" -- bun dev
 2password env run .env.tpl -- bun dev
 2password create api-credential --title "OpenAI API Key" --vault Personal --clipboard
-2password request https://api.example.com/v1/me --secret "op://Personal/Example API Key/credential"
+# human/admin terminal
+2password lease approve https://api.example.com/v1/me --secret "op://Personal/Example API Key/credential" --expires-in 10m --uses 1
+# agent consumes the returned bounded capability
+2password request https://api.example.com/v1/me --secret "op://Personal/Example API Key/credential" --lease <lease-token>
 ```
 
 Run `2password --help` to see all commands.
@@ -37,6 +40,8 @@ Run `2password --help` to see all commands.
 - Only `read` and `env resolve` intentionally return or materialize a secret from 2password.
 - `run` and `env run` inject plaintext into the selected child process. 2password does not print the value, but the child can; only use them with commands you trust with that credential.
 - For simple authenticated GETs, `request` is narrower: it binds the credential to one validated HTTPS destination and never returns the response body.
+- A short-lived lease binds that request to the credential's current item version, destination/header shape, expiry, and atomic use budget. The local store keeps only a hash of the bearer lease token.
+- `lease approve` is an interactive human/admin action. The local SQLite store does not provide malicious same-user isolation; that requires a future broker/daemon.
 - New secrets come in through the clipboard or a pipe, never as arguments. Every write is read back and checked.
 - Writes are never retried automatically.
 

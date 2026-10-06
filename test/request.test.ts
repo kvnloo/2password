@@ -148,7 +148,19 @@ describe("request", () => {
     try {
       const result = await box.run(["request", "--help"])
       assert.strictEqual(result.code, 0)
-      for (const value of ["<url>", "--secret", "--header", "--prefix"]) assert.include(result.stdout, value)
+      for (const value of ["<url>", "--secret", "--lease", "--header", "--prefix"]) assert.include(result.stdout, value)
+      assert.deepStrictEqual(await box.calls(), [])
+    } finally {
+      await box.close()
+    }
+  })
+
+  it("documents lease approval without invoking op or private input", async () => {
+    const box = await sandbox({ op: "#!/bin/sh\nexit 71\n" })
+    try {
+      const result = await box.run(["lease", "approve", "--help"])
+      assert.strictEqual(result.code, 0)
+      for (const value of ["<url>", "--secret", "--expires-in", "--uses"]) assert.include(result.stdout, value)
       assert.deepStrictEqual(await box.calls(), [])
     } finally {
       await box.close()
